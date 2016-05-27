@@ -4,27 +4,17 @@
  */
 'user strict';
 
-var CronJob = require('cron').CronJob;
+console.log('Running sentinel_monitor_launcher.');
+
 var fs = require('fs');
 var spawn = require('child_process').spawn;
+var sentinel_monitor_dir = '/srv/storage/system-services/home/vm/sentinel_monitor';
 
-// Run every 5 minutes.
-// var cronTime = '0 */5 * * * *';
+// Pipe stderr and stdout to logfile.
+var out = fs.openSync(sentinel_monitor_dir + '/sentinel_monitor.log', 'a');
+var err = fs.openSync(sentinel_monitor_dir + '/sentinel_monitor.log', 'a');
 
-// For testing : run every 15 seconds.
-var cronTime = '*/15 * * * * *';
-
-new CronJob(
-  cronTime,
-  function() {
-    // Pipe stderr and stdout to logfile.
-    var out = fs.openSync('./sentinel_monitor.log', 'a');
-    var err = fs.openSync('./sentinel_monitor.log', 'a');
-
-    spawn('node', ['sentinel_monitor.js'], {
-      stdio: [ 'ignore', out, err ]
-    });
-  },
-  null,
-  true);
-
+console.log(sentinel_monitor_dir + '/sentinel_monitor.js');
+spawn('/srv/software/medic-core/v1.6.1/x64/bin/node', [sentinel_monitor_dir + '/sentinel_monitor.js'], {
+  stdio: [ 'ignore', out, err ]
+});

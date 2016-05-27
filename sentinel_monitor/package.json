@@ -9,7 +9,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "cron": "^1.1.0",
     "fs": "0.0.2",
     "nodemailer": "^2.4.0",
     "strip-json-comments": "^2.0.1",
