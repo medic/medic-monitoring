@@ -35,7 +35,7 @@ var checkConfig = function(config) {
     }
   }
   _.each(
-    ['instanceName', 'logDir', 'errors', 'sender', 'recipients'],
+    ['instanceName', 'logDir', 'errors', 'sender', 'recipients', 'minTimeBetweenEmailsMinutes'],
     checkProperty);
 
   if (!config.sender.email) {
@@ -209,6 +209,34 @@ var sendEmail = function(senderEmail, senderPassword, recipients, instanceName, 
   });
 };
 
+var lastEmailFile = './last_email';
+var getLastEmailTime = function() {
+  try {
+    return new Date(fs.readFileSync(lastEmailFile));
+  } catch (err) {
+    console.error('Could not read last email time.');
+    return null;
+  }
+};
+
+var setLastEmailTime = function(date) {
+  try {
+    fs.writeFileSync(lastEmailFile, date);
+  } catch (err) {
+    console.error('Could not write last email time.', err);
+  }
+};
+var isTimeToEmail = function(now, minTimeBetweenEmailsMinutes) {
+  var lastEmailTime = getLastEmailTime();
+  console.log('lastEmailTime : ', lastEmailTime);
+  if (!lastEmailTime) {
+    // No previous email, so no spam risk. Email away!
+    return true;
+  }
+  var minTimeBetweenEmailsMillis = minTimeBetweenEmailsMinutes * 60 * 1000;
+  return (now.getTime() - lastEmailTime.getTime()) > minTimeBetweenEmailsMillis;
+};
+
 var monitorError = function(errorObj, logFiles, emailMessages) {
   console.log(' - ' + errorObj.name);
   var recentFiles = filterRecentFiles(logFiles, errorObj.ageLimitMinutes);
@@ -253,7 +281,12 @@ var monitor = function() {
     .then(function() {
       console.log();
       if (emailMessages.length > 0) {
-        console.log('Found problems, sending email.');
+        console.log('Found problems!');
+        if (!isTimeToEmail(now, config.minTimeBetweenEmailsMinutes)) {
+          console.log('Last email was less than ' + config.minTimeBetweenEmailsMinutes + ' minutes ago, not emailing.');
+          return;
+        }
+        setLastEmailTime(now);
         return sendEmail(config.sender.email, config.sender.password, config.recipients, config.instanceName, emailMessages, config.dryrun);
       }
       return console.log('No problems!');
