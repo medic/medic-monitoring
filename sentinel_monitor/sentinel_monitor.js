@@ -35,7 +35,7 @@ var checkConfig = function(config) {
     }
   }
   _.each(
-    ['instanceName', 'logdir', 'errors', 'sender', 'recipients'],
+    ['instanceName', 'logDir', 'errors', 'sender', 'recipients'],
     checkProperty);
 
   if (!config.sender.email) {
@@ -78,54 +78,83 @@ var checkConfig = function(config) {
   }
 };
 
-var findLogFiles = function(dir) {
-  var logfiles = fs.readdirSync(dir);
-  return _.filter(logfiles, function(fileName) {
+var getLogFileNames = function(dir) {
+  var fileNames = fs.readdirSync(dir);
+  var sentinelFiles = _.filter(fileNames, function(fileName) {
     return fileName.indexOf('sentinel') > -1;
+  });
+  return _.map(sentinelFiles, function(sentinelFile) {
+    return dir + '/' + sentinelFile;
   });
 };
 
-var findErrorMessage = function(logfile, errorString) {
-  return grep(errorString, logfile)
-    .then(function(loglines) {
-      loglines = loglines.split('\n');
-      loglines = _.filter(loglines,function(line) {
-        return line !== '';
+var filterRecentFiles = function(logFiles, ageLimitMinutes) {
+  var findLastDate = function(logLines) {
+    var date = null;
+    var i = logLines.length - 1;
+    while (!date && i >= 0) {
+      date = extractDateFromLine(logLines[i]);
+      i--;
+    }
+    return date;
+  };
+
+  return _.filter(logFiles, function(logFile) {
+    var logFileContents = fs.readFileSync(logFile, 'utf8');
+    var logLines = logFileContents.split('\n');
+    var lastDate = findLastDate(logLines);
+    return isDateWithinAgeLimit(lastDate, ageLimitMinutes);
+  });
+};
+
+var findErrorMessage = function(logFiles, errorString) {
+  console.log('Finding "' + errorString + '" in ' + logFiles.length + ' files.');
+  var findErrorMessageSingleFile = function(logfile, errorString) {
+    return grep(errorString, logfile)
+      .then(function(loglines) {
+        loglines = loglines.split('\n');
+        loglines = _.filter(loglines,function(line) {
+          return line !== '';
+        });
+        console.log('Found', loglines.length, 'log lines containing error string.');
+        return loglines;
       });
-      console.log('Found', loglines.length, 'log lines containing error string.');
-      return loglines;
-    });
+  };
+  return Promise.all(_.map(logFiles, _.partial(findErrorMessageSingleFile, _, errorString)))
+    .then(_.flatten);
 };
 
 var extractDate = function(loglines) {
   if (loglines.length === 0) {
     return [];
   }
-  var dates = _.map(loglines, function(logline) {
-    // E.g. 2015-10-17T15:14:32.176Z
-    var dateFormat = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/;
-    var date = dateFormat.exec(logline);
-    if (!date) {
-      console.log('Could not read date!!! Will use today.');
-      return new Date();
-    }
-    return Date.parse(date[0]);
-  });
+  var dates = _.map(loglines, extractDateFromLine);
   return dates;
 };
 
-var numDatesInAgeLimit = function(dates, ageLimitMinutes) {
+var extractDateFromLine = function(logline) {
+  // E.g. 2015-10-17T15:14:32.176Z
+  var dateFormat = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/;
+  var date = dateFormat.exec(logline);
+  if (!date) {
+    return null;
+  }
+  return new Date(date[0]);
+};
+
+var isDateWithinAgeLimit = function(date, ageLimitMinutes) {
   var ageLimitMillis = ageLimitMinutes * 60 * 1000;
   var now = new Date();
-  var limitDate = now.getTime() - ageLimitMillis;
-  var recent = _.filter(dates, function(date) {
-    return date > limitDate;
-  });
+  var limitDateMillis = now.getTime() - ageLimitMillis;
+  return date.getTime() > limitDateMillis;
+};
+
+var numDatesInAgeLimit = function(dates, ageLimitMinutes) {
+  var recent = _.filter(dates, _.partial(isDateWithinAgeLimit, _, ageLimitMinutes));
   return recent.length;
 };
 
 var grep = function(string, file) {
-  console.log('Finding "' + string + '" in ' + file);
   var cmd = 'grep "' + string + '" ' + file;
   return new Promise(function(resolve, reject) {
     exec(cmd, function(error, stdout, stderr) {
@@ -180,9 +209,11 @@ var sendEmail = function(senderEmail, senderPassword, recipients, instanceName, 
   });
 };
 
-var monitorError = function(errorObj, logfile, emailMessages) {
+var monitorError = function(errorObj, logFiles, emailMessages) {
   console.log(' - ' + errorObj.name);
-  return findErrorMessage(logfile, errorObj.string)
+  var recentFiles = filterRecentFiles(logFiles, errorObj.ageLimitMinutes);
+  console.log('Recent files : ', recentFiles);
+  return findErrorMessage(recentFiles, errorObj.string)
     .then(_.partial(extractDate, _, errorObj.string))
     .then(_.partial(numDatesInAgeLimit, _, errorObj.ageLimitMinutes))
     .then(function(numOccurrences) {
@@ -209,15 +240,13 @@ var monitor = function() {
   configCopy.sender.password = '***';
   console.log('Config :\n', configCopy, '\n');
 
-  var files = findLogFiles(config.logdir);
-  // Read the last file in the dir, it's the freshest.
-  var logFileToParse = config.logdir + '/' + files[files.length - 1];
+  var files = getLogFileNames(config.logDir);
 
   var emailMessages = [];
   var megaPromise = Promise.resolve();
   _.each(config.errors, function(errorObj) {
     megaPromise = megaPromise.then(function() {
-      return monitorError(errorObj, logFileToParse, emailMessages);
+      return monitorError(errorObj, files, emailMessages);
     });
   });
   megaPromise = megaPromise
