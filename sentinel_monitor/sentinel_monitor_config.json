@@ -7,7 +7,7 @@
 
   // Dir from which to read the sentinel logs. Expecting log files names that contain "sentinel".
   // Absolute path!
-  "logdir": "/srv/storage/gardener/logs/", // sentinel logs are in gardener dir
+  "logDir": "/srv/storage/gardener/logs/", // sentinel logs are in gardener dir
 
   // Monitored errors : if the string occurs more than maxNumOccurrences within the last ageLimitMinutes,
   // an email alert will be sent.
