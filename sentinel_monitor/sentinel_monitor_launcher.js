@@ -2,7 +2,7 @@
  * Launcher for sentinel_monitor.js, to run it periodically and pipe its logs to file.
  * Also allows the monitor to be rerun again when crashed (robust!).
  */
-'user strict';
+'use strict';
 
 console.log('Running sentinel_monitor_launcher.');
 
